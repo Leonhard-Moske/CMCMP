@@ -122,7 +122,7 @@ print(createH(L))
 # %%
 import matplotlib.pyplot as plt
 
-L = 2
+L = 3
 
 print(np.linalg.eigvals(genMatrix(translateOp,make_basis(L))))
 
@@ -247,7 +247,7 @@ def genBasis(L): #L number of fermions
     return np.asarray([i for i in tmp]) # assemble the list
 
 # %%
-L = 4
+L = 3
 
 print(genBasis(L))
 
@@ -261,9 +261,9 @@ def c(state, coef, site): #state is copy
     else:
         state[site] = 0
         if (np.sum(state[:site])%2 == 0):
-            return state , 1
+            return state , 1*coef
         else:
-            return state , -1
+            return state , -1*coef
     
 def cdag(state, coef, site):
     if (state[site] == 1):
@@ -296,12 +296,169 @@ def calcMatrix(Basis, L, t,U):# calculate the basis by calculating the hamiltoni
         Matrix[i,j] = hubbardHamiltonian(Basis[i], Basis[j], L, t, U)
     return Matrix
 
+def transtionOP(state):
+    newState = np.append(state[2:],state[:2], axis = 0)
+    parity = sum(state[2:])
+    sign1 = (parity%2)*(-1)*state[0]
+    sign2 = (parity%2)*(-1)*state[1]
+    if (sign1 == sign2):
+        sign = 1
+    else:
+        sign = -1
+    return newState, sign
+
+def translateOp(statei, statej, params = None):
+    if np.array_equal(statei,transtionOP(statej)[0]):
+        return transtionOP(statej)[1]
+    else:
+        return 0
+
+def genMatrix(operator, basis):
+    Matrix = np.empty((len(basis), len(basis)))
+    for i, j in it.product(range(len(basis)), repeat=2):
+        Matrix[i,j] = operator(basis[i],basis[j])
+    return Matrix
+
+
+def genFamily(state, operator, L): # generate the family of a state with an operator
+    """generate the family of a state with an operator"""
+    family = np.asarray([[state, 0, 1]], dtype = object)
+    for r in range(1,L): #not 2*L
+        family = np.append(family, [[operator(family[-1][0])[0],r,operator(family[-1][0])[1] * family[-1][2]]], axis=0)
+    return family
+
+def getRepresentativ(state, operator, L): # the representativ is the first entry in the sortet family
+    tmpa =genFamily(state,operator, L)[:,0]
+    tmp = []
+    for i in tmpa:
+        tmp.append(i)
+    tmp = np.asanyarray(tmp,dtype = object)
+    for i in range(len(tmp[0])): # over the length of the states
+       tmp = tmp[tmp[:,i].argsort()]
+    return tmp[0]
+
+def get_shift_sign_ofstate(state,operator,L):
+    rep = getRepresentativ(state,operator,L)
+    s = rep
+    sign=1
+    shift=0
+    for x in range(L):
+        # print("equ", s, state)
+        if np.array_equal(s, state):
+            return shift, sign
+        else:
+            s,sgn = operator(s)
+            sign*=sgn
+            shift+=1
+    if np.array_equal(s, state):
+        return shift, sign
+
+
+def get_norm(state, nk,operator, L ):
+    k=2.*np.pi*nk/L
+    fam = genFamily(state,operator,L)
+    
+    fam = tuple(fam)
+
+    different_states = set()
+    for s,r,sign in fam:
+        different_states.add(tuple(s))
+    
+    prefactors = {s:0.0 for s in different_states}
+    
+    for s, r, sign in fam:
+        prefactors[tuple(s)] += sign*np.exp(1.j*k*r)
+    
+    norm = 0.0
+    for s in prefactors:
+        norm += np.abs( prefactors[s] )**2
+        
+    return np.sqrt(norm)
+
+def calcHam(L,operator):
+    hamils = []
+    dimsum = 0
+    for nk in range(L):
+        k=2.*np.pi*nk/L
+    
+        basis = genBasis(L)
+
+        sector_reps={}
+        for s in basis:
+            rep = getRepresentativ(s,operator,L)
+            #fam = create_family(rep)
+            norm=get_norm(rep,nk, operator, L)
+            if norm>1e-6: 
+                if tuple(rep) not in sector_reps:
+                    sector_reps[tuple(rep)]=norm
+        secdim = len(sector_reps.keys())
+        print(nk, secdim)
+        dimsum+=secdim
+        
+        sector_basis=list(sector_reps.keys())
+        
+        
+        # here, we have the sector reps and norms
+        Hk = np.zeros((secdim, secdim), dtype=np.complex128)
+        
+        for row, rep in enumerate(sector_basis):
+            matel=0.0
+            
+            Hk[row,row] = np.sum([spin_density(rep, 2*i)*spin_density(rep, (2*i +1)%(2*L)) for i in range(L)])
+            
+            #for i in range(L):
+            #    matel+= # density(rep,i)*density(rep,(i+1)%L)
+            # Hk[row,row]=matel
+            
+            for sigma in [0,1]:
+                for l in range(L):
+                    lp1=((l+1)*2 + sigma)%(L*2)
+                    
+                    for l1,l2 in [(2*l + sigma,lp1), (lp1, 2*l + sigma)]:
+                        if rep[l1]==1 and rep[l2]==0:
+                            s1, sgn1 = c(np.asarray(rep),1,l1)
+                            s2, sgn2 = cdag(s1,1,l2)
+
+                            
+
+                            rep2 = getRepresentativ(s2,operator,L)
+                            
+                            if (rep2 == sector_basis).all(1).any():
+                                col = np.argwhere(rep2 == sector_basis) #sector_basis.index(rep2)
+                                repshift, repsign = get_shift_sign_ofstate(s2,operator,L)
+                                
+                                norm1 = sector_reps[tuple(rep)]
+                                norm2 = sector_reps[tuple(rep2)]
+                                                    
+                                    
+                                matel = norm2/norm1 * hopping * sgn1 * sgn2 * repsign * np.exp(1.j*k*repshift)
+                                
+                                Hk[row,col] += matel
+        hamils.append(Hk)
+    return hamils
+    
+    
+    kspec = np.linalg.eigvalsh(Hk)
+    # specs.extend(kspec)
+
 # %%
-testindex = 4
+testindex = 6
 
 a = genBasis(L)
 print(c(np.copy(a[testindex]), 1,1))
-print(a[testindex])
+print(a[testindex], len(a))
+
+print(transtionOP(a[testindex]))
+
+# %%
+#genFamily(a[testindex],transtionOP,L)
+
+print(genFamily(a[testindex],transtionOP,L), "RESULT")
+print(getRepresentativ(a[testindex],transtionOP,L))
+print(get_shift_sign_ofstate(a[testindex +13],transtionOP,L))
+
+# %%
+print(get_norm(a[testindex],3,transtionOP,L))
 
 # %%
 print(hubbardHamiltonian(a[testindex],a[testindex],L,1,1))
@@ -309,6 +466,32 @@ print(hubbardHamiltonian(a[testindex],a[testindex],L,1,1))
 print(hubbardHamiltonian(a[testindex],a[testindex + 4],L,1,1))
 
 # %%
-calcMatrix(genBasis(L),L,1,1)
+import sympy
+#sympy.Matrix(calcMatrix(genBasis(L),L,1,1))
+#sympy.Matrix(genMatrix(translateOp,genBasis(L)))
+
+# %%
+print(np.matmul(genMatrix(translateOp,genBasis(L)),calcMatrix(genBasis(L),L,1,1)) - np.matmul(calcMatrix(genBasis(L),L,1,1),genMatrix(translateOp,genBasis(L))))
+print(np.matmul(np.transpose(genMatrix(translateOp,genBasis(L))),genMatrix(translateOp,genBasis(L))))
+
+# %%
+dimsum = 0
+for nk in range(L):
+    sector_reps={}
+    for s in genBasis(L):
+        rep = getRepresentativ(s,transtionOP,L)
+        #fam = genFamily(rep)
+        norm=get_norm(rep,nk,transtionOP,L)
+        if norm>1e-6: 
+            if tuple(rep) not in sector_reps:
+                sector_reps[tuple(rep)]=norm
+    secdim = len(sector_reps.keys())
+    print(nk, secdim)
+    dimsum+=secdim
+print("total ", dimsum, " should be ", 4**L)
+
+# %%
+print(L)
+print(calcHam(L,transtionOP))
 
 
