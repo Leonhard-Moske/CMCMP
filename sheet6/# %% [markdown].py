@@ -49,9 +49,33 @@ def Hamiltonian(J, statei, L, statej, s):
         #    H += coef3 * J
     return H
 
+def HamiltonianOpen(J, statei, L, statej, s):
+    H = 0
+    # if (np.array_equal(statei, statej)): # is in HamiltonianDiag
+    #     for i in range(L):
+    #         H += statei[i]*statei[(i+1)%L] * J
+            #H += Sz(*Sz(1, np.copy(statei), (i+1)%L), i)[0] * J
+    for i in range(L-1): #apply the operators to every site until L-1
+        coef1, state1 = Splus(*Sminus(1, np.copy(statei),(i+1)%L), i)
+        coef2, state2 = Sminus(*Splus(1, np.copy(statei), (i+1)%L), i)
+        #coef3, state3 = Sz(*Sz(1, np.copy(statei), i+1), i)
+        if np.array_equal(state1, statej): #compare if (<i|H)|j> is 0 for every term
+            H += coef1*J*0.5
+        if np.array_equal(state2, statej):
+            H += coef2*J*0.5
+        #if np.array_equal(state3, statej):
+        #    H += coef3 * J
+    return H
+
 def HamiltonianDiag(J, statei, L):
     H = 0
     for i in range(L):
+        H += statei[i]*statei[(i+1)%L] * J
+    return H
+
+def HamiltonianDiagOpen(J, statei, L):
+    H = 0
+    for i in range(L-1):
         H += statei[i]*statei[(i+1)%L] * J
     return H
 
@@ -62,6 +86,14 @@ def calcMatrix(Basis, J, L, s):# calculate the basis by calculating the hamilton
         Matrix[i,i] = HamiltonianDiag(J, Basis[i], L)
     for i, j in it.permutations(range(len(Basis)), 2):
         Matrix[i,j] = Hamiltonian(J, Basis[i], L, Basis[j], s)
+    return Matrix 
+
+def calcMatrixOpen(Basis, J, L, s):# calculate the basis by calculating the hamiltonian with all combination from the basis
+    Matrix = np.empty((len(Basis),len(Basis)))
+    for i in range(len(Basis)):
+        Matrix[i,i] = HamiltonianDiagOpen(J, Basis[i], L)
+    for i, j in it.permutations(range(len(Basis)), 2):
+        Matrix[i,j] = HamiltonianOpen(J, Basis[i], L, Basis[j], s)
     return Matrix 
 
 
@@ -189,123 +221,6 @@ def calcHam(basis, L,operator):
         hamils.append(Hk)
     return hamils
     
-
-# %% [markdown]
-# ## Some sanity checks
-
-# %%
-testindex = 9
-
-L = 7
-
-a = genBasis(L,0.5)
-print(Splus(1,np.copy(a[testindex]), 1))
-print(a[testindex], len(a))
-
-print(transition(a[testindex]))
-
-
-
-# %%
-
-print(genFamily(a[testindex],transition,L), "RESULT")
-print(get_representativ(a[testindex],transition,L))
-print(get_norm([0.5,-0.5,0.5,-0.5],2,transition,L))
-
-
-# %%
-import sympy
-sympy.Matrix(calcHam(genBasis(L,0.5),L,transition)[1])
-
-# %%
-dimsum = 0
-L = 5
-for nk in range(L):
-    sector_reps={}
-    for s in genBasis(L,0.5):
-        rep , xl = get_representativ(s,transition,L)
-        #fam = genFamily(rep)
-        norm=get_norm(rep,nk,transition,L)
-        if norm>1e-6: 
-            if tuple(rep) not in sector_reps:
-                sector_reps[tuple(rep)]=norm
-    secdim = len(sector_reps.keys())
-    print(nk, secdim)
-    dimsum+=secdim
-print("total ", dimsum, " should be ", 2**L)
-
-# %%
-splitBasis, sZtot = splitBasisTotZ(genBasis(L,0.5),L)
-if L%2 == 0:
-    ind = sZtot.index(0)
-    testham = calcHam(splitBasis[ind],L,transition)[1]
-else:
-    ind = sZtot.index(0.5)
-    testham = calcHam(splitBasis[ind],L,transition)[1]
-
-# %% [markdown]
-# ## Exercise 13
-
-# %%
-import numpy as np
-import matplotlib.pyplot as plt
-
-def csr(matrix): #matrix has to be rows in first dimension
-    elements , coloumns, pointer = [] , [], [0] # generate output arrays
-    for row in matrix:
-        elements = np.append(elements, row[np.nonzero(row)]) # append all nonzero elements
-        coloumns = np.append(coloumns, np.nonzero(row)) # append the row indices with nonzero elements
-        pointer = np.append(pointer,np.count_nonzero(row) + pointer[-1]) # append the number of all nonzero elements up until that row
-    return elements, [int(c) for c in coloumns], pointer
-
-def matrixVectorproduct(Matrix,vector): # simple matrix vector product with a csr matrix 
-    e, c, p  = csr(Matrix)
-    returnVec = []
-    for i in range(len(vector)):
-        returnVec.append(np.sum(np.multiply(np.take(vector,c[p[i]:p[i+1]]),e[p[i]:p[i+1]])))
-    return returnVec
-
-# testing
-matrix = np.asanyarray([[0,0,1,0],[3,2,0,0],[0,0,4,0],[0,0,0,0]])
-#print(csr(matrix))
-vec = np.asarray([1,2,3,4])
-#print(matrixVectorproduct(matrix,vec))
-
-
-
-Ls = [2,4,6,8]#,10 ,12,14,16] #not realy feasable timewise with my hamiltonian implementation 
-numberNonzeroNormalized = []
-ham = 0
-
-for L in Ls:
-    print(L)
-    ham = calcMatrix(genBasis(L,0.5),1,L,0.5)
-    numberNonzeroNormalized.append(len(csr(ham)[0]) / (4**L))
-
-plt.plot(Ls,numberNonzeroNormalized)
-plt.xlabel("L")
-plt.ylabel(r"$\frac{\mathrm{Number of nonzero elements}  }{4^L}$")
-plt.show()
-
-
-
-# %%
-from scipy.sparse import csr_matrix 
-
-L = Ls[-1]
-
-v0 = np.random.rand(2**L)
-
-v1 = matrixVectorproduct(ham, v0)
-v2 = csr_matrix(ham).dot(v0)
-
-print(np.any(np.abs(np.add(v1, -v2)) >= 0.1)) # test if the difference of the output vectors is greater than 0
-
-# %% [markdown]
-# ## Exercise 14
-
-# %%
-# %%
 from scipy.sparse import csr_matrix 
 
 def lancoz(A, v_un, m): #A is scipy sparse matrix
@@ -329,105 +244,220 @@ def lancoz(A, v_un, m): #A is scipy sparse matrix
         v[j+1] = w/beta[j+1]
     return v, alpha, beta[1:]
 
-# Ls = [2,3,4,5,6,7,8]
-# for L in Ls:
-#     m = L # for these dimension the lancoz algorithm is not the bottleneck
-#     mat = csr_matrix(calcMatrix(genBasis(L,0.5),1,L,0.5))
-#     H = calcMatrix(genBasis(L,0.5),1,L,0.5)
+def wrapLancoz(csr_matrix, L, m):
+    
+    v0 = np.random.rand(2**L)
+    v, alpha, beta = lancoz(csr_matrix, v0, m)
 
-#     v0 = np.random.rand(2**L)
-#     v , alpha, beta = lancoz(mat,v0,m)
+    T = np.zeros((m,m))
 
-#     T = np.zeros((m,m))
+    for i in range(m):
+        T[i,i] = alpha[i]
+    for i in range(m-1):
+        T[i,i+1] = beta[i]
+        T[i+1,i] = beta[i]
 
-#     for i in range(m):
-#         T[i,i] = alpha[i]
-#     for i in range(m-1):
-#         T[i,i+1] = beta[i]
-#         T[i+1,i] = beta[i]
-
-#     eigenT = np.linalg.eigvals(T)
-#     eigenH = np.linalg.eigvals(H)
-
-#     print(L )
-#     print(np.sort(np.unique(np.round(eigenH,decimals=3))))
-#     print(np.sort(np.round(eigenT,decimals=3)))
+    return T , v
 
 # %% [markdown]
-# ## Exercise 15
+# ## Some sanity checks
 
 # %%
-def create_Hk_spinsec(L,spinsec):
-    splitBasis, sZtot = splitBasisTotZ(genBasis(L,0.5),L)
-    ind = sZtot.index(spinsec)
-    hams = []
-    lengths = []
-    for nk in range(0,L):
-        ham = calcHam(splitBasis[ind],L,transition)[nk]
-        hams.append(csr_matrix(ham))
-        if (len(ham[0]) == 0):
-            lengths.append(1)
-        else:
-            lengths.append(len(ham[0]))
-    return hams, lengths
+L = 3
 
-# mat = csr_matrix(testham)
-# mat = mat.astype(np.float)
-# v0 = np.random.rand(len(testham[0]))
-# m = 7
-# v , alpha, beta = lancoz(mat,v0,m)
+basis = genBasis(L,0.5)
+
+print(basis)
+
+print(calcMatrixOpen(basis,1,L,0.5))
+
+# %% [markdown]
+# ## Exercise 16
+
+# %%
+import matplotlib.pyplot as plt
+import itertools as it
+L = 8  #L = 8 -> 14s -> 10 = 4min
+
+exactEV = np.linalg.eigvals(calcMatrixOpen(genBasis(L,0.5),1,L,0.5))
+# print(exactEV)
+
+mat = calcMatrixOpen(genBasis(L,0.5),1,L,0.5)
+
+eigvals = np.empty(0)
+plotms = []
+diagMean = []
+noDiagMean = []
+ms = [m for m in range(5,100,10)]
+for m in ms:
+    t , v = wrapLancoz(csr_matrix(mat),L,m)
+    ev = np.linalg.eigvals(t)
+    if np.any( ev > 5): # i suspect that in this case the values in the t matrix are not optimal
+        t , v = wrapLancoz(csr_matrix(mat),L,m)
+        ev = np.linalg.eigvals(t)
+    eigvals = np.append(eigvals,ev)
+    plotms = np.append(plotms, [m]*len(ev))
+
+    id = np.matmul(np.transpose(v),v)
+    if(np.any(id == np.inf) or np.any(id == np.nan)):
+        print(id)
+        print(v)
+    diagMean.append(np.sum(np.absolute(np.diagonal(id)))/np.size(np.diagonal(id)))
+    noDiagMean.append((np.sum(np.abs(id)) - np.sum(np.absolute(np.diagonal(id))))/np.size(id))
 
 
-# T = np.zeros((m,m))
 
-# for i in range(m):
-#     T[i,i] = alpha[i]
-# for i in range(m-1):
-#     T[i,i+1] = beta[i]
-#     T[i+1,i] = beta[i]
 
-# eigenT = np.linalg.eigvals(T)
-# print(eigenT)
-# print(v,alpha,beta)
+plt.figure(figsize=(10,7),dpi=200)
+for e in exactEV:
+    plt.axhline(y = e, lw = 0.5)
+plt.scatter(plotms, eigvals, marker = "+")
+plt.show()
 
-Elow = []
-whichnk = []
+plt.figure(figsize=(10,7),dpi=100)
+plt.plot(ms,diagMean, label = "mean of absolute values on diagonal")
+plt.plot(ms,noDiagMean, label = "mean of absolute else")
+plt.legend()
+plt.show()
 
-Lmin, Lmax = 5, 7
+# %% [markdown]
+# ## Exercise 17
 
-for L in range(Lmin,Lmax):
-    E0 = 100
-    whichNk = 0
-    if L%2 == 0:
-        ham, dims = create_Hk_spinsec(L,0)
-    else:
-        ham, dims = create_Hk_spinsec(L,0.5)
-    for i, h in enumerate(ham): #loop through nk
-        v0 = np.random.rand(dims[i])
-        m = dims[i]
-        #print(i, dims[i], h, v0)
-        v , alpha, beta = lancoz(h,v0,m)
-        T = np.zeros((m,m))
-        for k in range(m):
-            T[k,k] = alpha[k]
-        for k in range(m-1):
-            T[k,k+1] = beta[k]
-            T[k+1,k] = beta[k]
+# %%
+from scipy.linalg import lu_factor, lu_solve
 
-        eigenT = np.linalg.eigvals(T)
-        if np.min(eigenT) < E0:
-            E0 = np.min(eigenT)
-            whichNk = i
-    Elow.append(E0/L)
-    whichnk.append(whichNk)
-    print(E0, whichNk)
-    
+def lancozShiftInverse(A, v_un, m): #A is a normal numpy array
+    n = len(v_un)
+    alpha = np.empty(m)
+    beta = np.empty(m)
+    v = np.empty((m+1,n))
+    v0 = v_un / np.linalg.norm(v_un)
+    v[0] = v0
+    beta[0] = 0
+    w = gauss(A,v[0]) #  A.dot(v[0])
+    alpha[0] = np.dot(w,v[0])
+    w = np.add(w, -1*alpha[0]*v[0])
+    beta[1] = np.linalg.norm(w)
+    v[1] = w/beta[1]
+    for j in range(1,m-1):
+        w = np.add(gauss(A,v[j]), (-1)*beta[j]*v[j-1])  #np.add(A.dot(v[j]), (-1)*beta[j]*v[j-1])
+        alpha[j] =  np.dot(w,v[j])
+        w = np.add(w, -1*alpha[j]*v[j]) 
+        beta[j+1] = np.linalg.norm(w)
+        v[j+1] = w/beta[j+1]
+    return v, alpha, beta[1:]
+
+
+def gauss(mat, vec):
+    return lu_solve(lu_factor(mat), vec)
+
+def wrapLancozShiftInverse(matrix, L, m):
+    v0 = np.random.rand(2**L)
+    v, alpha, beta = lancozShiftInverse(matrix, v0, m)
+
+    T = np.zeros((m,m))
+
+    for i in range(m):
+        T[i,i] = alpha[i]
+    for i in range(m-1):
+        T[i,i+1] = beta[i]
+        T[i+1,i] = beta[i]
+
+    return T , v
+
+mat = calcMatrixOpen(genBasis(L,0.5),1,L,0.5)
+
+m = 100
+
+t , v = wrapLancozShiftInverse(mat,L,m)
+ev = np.linalg.eigvals(t)
+if np.any( ev >2): # i suspect that in this case the values in the t matrix are not optimal
+    t , v = wrapLancoz(csr_matrix(mat),L,m)
+    ev = np.linalg.eigvals(t)
+
+
+plt.figure(figsize=(10,7),dpi=200)
+plt.scatter([0]*len(ev), ev, marker = "+")
+#plt.scatter([0]*len(ev), np.divide(1,ev), marker = "+")
+for e in exactEV:
+    plt.axhline(y = e, lw = 0.5)
+plt.show()
+
+# %% [markdown]
+# Why do i not have to invert my eigenvalues?
+
+# %% [markdown]
+# ## Exercise 18
+
+# %%
+from scipy.sparse.linalg import expm_multiply
+
+phi0 = np.append([0.5]*4,[-0.5]*4) # start for L = 8
+
+basis = genBasis(L,0.5)
+# print(basis)
+# print(phi0 == basis)
+# print(np.all(phi0 == basis, axis = 1))
+# print(np.where(np.all(phi0 == basis, axis = 1)))
+# print(np.where(np.all(phi0 == basis, axis = 1))[0][0])
+
+phi0n = np.zeros(len(mat[0]))
+phi0n[np.where(np.all(phi0 == basis, axis = 1))[0][0]] = 1
+
+m = 50
+
+mat = calcMatrixOpen(genBasis(L,0.5),1,L,0.5)
+
+T, V = wrapLancoz(csr_matrix(mat),L, m)
+
+#exponentiate H on phi0
+
+tstart = 0
+tstop = 80
+num = 200
+
+phi1 = expm_multiply(mat*-1*1j,phi0n,tstart,tstop,num, endpoint=True)
+
+
+
 
 
 # %%
-Ls = np.arange(Lmin,Lmax,1) 
-plt.axline(y = 0.25-np.log(2), color = "r")     
-plt.plot(Ls,Elow)
+# print(np.where(np.imag(phi1) != 0))
+# print(phi1[1])
+
+i = 3
+siTime = []
+for t in range(len(phi1)): 
+    sL = []
+    for i in range(L):
+        si = 0
+        for j,bas in enumerate(basis):
+            si += np.abs(phi1[t][j])**2 * bas[i]
+        sL.append(si)
+    siTime.append(sL)
+
+siTime = np.array(siTime)
+
+times = np.array([[t]*L for t in range(1,201)]).flatten()
+
+colors = ["r", "r", "r", "r","b","b","b","b" ]
+
+colors = [
+"#fa6e7e",
+"#e6678e",
+"#cc6499",
+"#ae639f",
+"#8f639e",
+"#716198",
+"#555d8c",
+"#3f587d",
+"#30506b",
+"#2a4858"
+]
+
+plt.figure(figsize=(10,7),dpi=200)
+plt.scatter(times, siTime , color = colors*200, s = 2)
 plt.show()
 
 
