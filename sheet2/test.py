@@ -16,7 +16,7 @@ def genBasis(L, s): #L number of spins, s total spin
     tmp = it.product(posSpins, repeat = L) # generate object that itterates over all combinations
     return np.asarray([i for i in tmp]) # assemble the list
 
-
+asdsadasd = 0
 
 # %%
 Basis = genBasis(2,1.5)
